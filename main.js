@@ -12,9 +12,9 @@ const assemblyaiClient = new AssemblyAI({
 });
 
 // Clarifai workflow URLs
-const EMOTION_WORKFLOW_URL = 'https://clarifai.com/c81w9fjlnybh/emotion/workflows/face-sentiment-recognition-workflow-jlj161';
-const FACE_DETECTION_WORKFLOW_URL = 'https://clarifai.com/c81w9fjlnybh/face-detection/workflows/face-detection-workflow-5cbii';
-const GENERAL_WORKFLOW_URL = 'https://clarifai.com/c81w9fjlnybh/test/workflows/general-image-recognition-workflow-3d5qu';
+const EMOTION_WORKFLOW_URL = 'https://api.clarifai.com/v2/workflows/emotion/workflows/face-sentiment-recognition-workflow-jlj161';
+const FACE_DETECTION_WORKFLOW_URL = 'https://api.clarifai.com/v2/workflows/face-detection/workflows/face-detection-workflow-5cbii';
+const GENERAL_WORKFLOW_URL = 'https://api.clarifai.com/v2/workflows/general/workflows/general-image-recognition-workflow-3d5qu';
 
 // Function to process the video
 async function processVideo(videoFile) {
@@ -23,65 +23,118 @@ async function processVideo(videoFile) {
     return;
   }
 
-  if (!ffmpeg.isLoaded()) await ffmpeg.load();
+  // Show loading state
+  const button = document.querySelector('button');
+  button.innerText = 'Processing...';
+  button.disabled = true;
 
-  const videoName = 'input.mp4';
-  ffmpeg.FS('writeFile', videoName, await fetchFile(videoFile));
+  try {
+    // Load FFmpeg
+    if (!ffmpeg.isLoaded()) {
+      await ffmpeg.load();
+    }
 
-  // Step 1: Get video duration and key moments
-  const duration = await getVideoDuration(videoName);
-  const keyMoments = await findKeyMoments(videoName); // Placeholder for strategic moments
+    // Write the uploaded file to FFmpeg's file system
+    const videoName = 'input.mp4';
+    ffmpeg.FS('writeFile', videoName, await fetchFile(videoFile));
 
-  // Step 2: Create 5 strategic short clips
-  const shorts = [];
-  for (let i = 0; i < 5; i++) {
-    const startTime = keyMoments[i]; // Use strategic start times
-    const shortName = `short_${i + 1}.mp4`;
+    // Step 1: Get video duration
+    const duration = await getVideoDuration(videoName);
+    const keyMoments = findKeyMoments(duration);
 
-    // Trim and resize the video
-    await ffmpeg.run(
-      '-i', videoName,
-      '-vf', 'scale=1080:1920',
-      '-ss', startTime.toString(),
-      '-t', '30', // Each short is 30 seconds long
-      shortName
-    );
+    // Step 2: Create 5 strategic short clips
+    const outputDiv = document.getElementById('output');
+    outputDiv.innerHTML = ''; // Clear previous output
+    outputDiv.style.display = 'block';
 
-    // Step 3: Add subtitles using AssemblyAI
-    await addSubtitles(shortName);
+    for (let i = 0; i < 5; i++) {
+      const startTime = keyMoments[i];
+      const shortName = `short_${i + 1}.mp4`;
 
-    // Step 4: Analyze the short clip with Clarifai
-    const analysis = await analyzeShortClip(shortName);
+      // Trim and resize the video
+      await ffmpeg.run(
+        '-i', videoName,
+        '-vf', 'scale=1080:1920',
+        '-ss', startTime.toString(),
+        '-t', '30', // Each short is 30 seconds long
+        shortName
+      );
 
-    // Step 5: Generate download link
-    const data = ffmpeg.FS('readFile', shortName);
-    const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
-    const videoUrl = URL.createObjectURL(videoBlob);
+      // Step 3: Add subtitles using AssemblyAI
+      await addSubtitles(shortName);
 
-    shorts.push({ name: shortName, url: videoUrl, analysis });
+      // Step 4: Analyze the short clip with Clarifai
+      const analysis = await analyzeShortClip(shortName);
+
+      // Step 5: Generate download link
+      const data = ffmpeg.FS('readFile', shortName);
+      const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
+      const videoUrl = URL.createObjectURL(videoBlob);
+
+      // Display the short clip
+      const shortContainer = document.createElement('div');
+      shortContainer.className = 'short-container';
+
+      const videoElement = document.createElement('video');
+      videoElement.src = videoUrl;
+      videoElement.controls = true;
+
+      const downloadLink = document.createElement('a');
+      downloadLink.href = videoUrl;
+      downloadLink.download = shortName;
+      downloadLink.innerText = `Download Short ${i + 1}`;
+
+      const analysisDiv = document.createElement('div');
+      analysisDiv.innerHTML = `<pre>${JSON.stringify(analysis, null, 2)}</pre>`;
+
+      shortContainer.appendChild(videoElement);
+      shortContainer.appendChild(downloadLink);
+      shortContainer.appendChild(analysisDiv);
+      outputDiv.appendChild(shortContainer);
+    }
+  } catch (error) {
+    console.error('Error processing video:', error);
+    alert('An error occurred while processing the video.');
+  } finally {
+    // Reset button
+    button.innerText = 'Process Video';
+    button.disabled = false;
   }
-
-  return shorts;
 }
 
 // Helper function to get video duration
 async function getVideoDuration(videoName) {
-  const info = await ffmpeg.run('-i', videoName);
-  const durationMatch = info.match(/Duration: (\d+):(\d+):(\d+)/);
-  if (durationMatch) {
-    const hours = parseInt(durationMatch[1]);
-    const minutes = parseInt(durationMatch[2]);
-    const seconds = parseInt(durationMatch[3]);
-    return hours * 3600 + minutes * 60 + seconds;
-  }
-  return 0;
+  return new Promise((resolve, reject) => {
+    const logs = [];
+    const originalLog = console.log;
+    console.log = (message) => {
+      logs.push(message);
+      originalLog(message);
+    };
+
+    ffmpeg.run('-i', videoName)
+      .then(() => {
+        console.log = originalLog; // Restore original console.log
+        const logText = logs.join('\n');
+        const durationMatch = logText.match(/Duration: (\d+):(\d+):(\d+)/);
+        if (durationMatch) {
+          const hours = parseInt(durationMatch[1]);
+          const minutes = parseInt(durationMatch[2]);
+          const seconds = parseInt(durationMatch[3]);
+          resolve(hours * 3600 + minutes * 60 + seconds);
+        } else {
+          reject(new Error('Could not determine video duration.'));
+        }
+      })
+      .catch((error) => {
+        console.log = originalLog; // Restore original console.log
+        reject(error);
+      });
+  });
 }
 
 // Helper function to find key moments in the video
-async function findKeyMoments(videoName) {
-  // Placeholder for finding strategic moments
-  // This could use AI to detect high-energy scenes, faces, or other viral factors
-  const duration = await getVideoDuration(videoName);
+function findKeyMoments(duration) {
   const keyMoments = [
     Math.floor(duration * 0.1), // 10% of the video
     Math.floor(duration * 0.3), // 30% of the video
@@ -140,7 +193,7 @@ async function analyzeShortClip(videoName) {
 
 // Function to call Clarifai API
 async function clarifaiAnalyze(imageUrl, workflowUrl) {
-  const response = await fetch(`https://api.clarifai.com/v2/workflows/${workflowUrl}/results`, {
+  const response = await fetch(workflowUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -162,29 +215,5 @@ async function clarifaiAnalyze(imageUrl, workflowUrl) {
 // Example usage
 document.getElementById('processVideo').onclick = async () => {
   const videoFile = document.getElementById('videoInput').files[0];
-  const shorts = await processVideo(videoFile);
-
-  // Display and allow downloading the shorts
-  const outputDiv = document.getElementById('output');
-  outputDiv.innerHTML = ''; // Clear previous output
-
-  shorts.forEach((short, index) => {
-    const videoElement = document.createElement('video');
-    videoElement.src = short.url;
-    videoElement.controls = true;
-
-    const downloadLink = document.createElement('a');
-    downloadLink.href = short.url;
-    downloadLink.download = short.name;
-    downloadLink.innerText = `Download Short ${index + 1}`;
-
-    const analysisDiv = document.createElement('div');
-    analysisDiv.innerHTML = `<pre>${JSON.stringify(short.analysis, null, 2)}</pre>`;
-
-    const container = document.createElement('div');
-    container.appendChild(videoElement);
-    container.appendChild(downloadLink);
-    container.appendChild(analysisDiv);
-    outputDiv.appendChild(container);
-  });
+  await processVideo(videoFile);
 };
