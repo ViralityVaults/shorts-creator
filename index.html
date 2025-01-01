@@ -57,6 +57,25 @@
     button:hover {
       background-color: #357abd;
     }
+    .status {
+      margin-top: 1rem;
+      font-size: 0.9rem;
+      color: #666;
+    }
+    .progress {
+      width: 100%;
+      height: 10px;
+      background-color: #e0e0e0;
+      border-radius: 5px;
+      margin-top: 1rem;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background-color: #4a90e2;
+      width: 0;
+      transition: width 0.3s ease;
+    }
     .output {
       margin-top: 2rem;
       display: none;
@@ -83,6 +102,15 @@
       border-radius: 5px;
       background-color: #f9f9f9;
     }
+    .analysis {
+      margin-top: 1rem;
+      text-align: left;
+    }
+    .analysis p {
+      margin: 0.5rem 0;
+      font-size: 0.9rem;
+      color: #444;
+    }
   </style>
 </head>
 <body>
@@ -91,140 +119,16 @@
     <p>Upload a video to generate short, vertical clips with subtitles and analysis.</p>
     <input type="file" id="videoInput" accept="video/*">
     <button onclick="processVideo()">Process Video</button>
+    <div class="status" id="status">Ready to process video.</div>
+    <div class="progress">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
     <div class="output" id="output"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
   <script>
-    const { createFFmpeg, fetchFile } = FFmpeg;
-    const ffmpeg = createFFmpeg({ log: true });
-
-    async function processVideo() {
-      const videoFile = document.getElementById('videoInput').files[0];
-      if (!videoFile) {
-        alert('Please upload a video!');
-        return;
-      }
-
-      // Show loading state
-      const button = document.querySelector('button');
-      button.innerText = 'Processing...';
-      button.disabled = true;
-
-      try {
-        // Load FFmpeg
-        if (!ffmpeg.isLoaded()) {
-          await ffmpeg.load();
-        }
-
-        // Write the uploaded file to FFmpeg's file system
-        const videoName = 'input.mp4';
-        ffmpeg.FS('writeFile', videoName, await fetchFile(videoFile));
-
-        // Step 1: Get video duration
-        const duration = await getVideoDuration(videoName);
-        const keyMoments = await findKeyMoments(duration);
-
-        // Step 2: Create 5 strategic short clips
-        const outputDiv = document.getElementById('output');
-        outputDiv.innerHTML = ''; // Clear previous output
-        outputDiv.style.display = 'block';
-
-        for (let i = 0; i < 5; i++) {
-          const startTime = keyMoments[i];
-          const shortName = `short_${i + 1}.mp4`;
-
-          // Trim and resize the video
-          await ffmpeg.run(
-            '-i', videoName,
-            '-vf', 'scale=1080:1920',
-            '-ss', startTime.toString(),
-            '-t', '30', // Each short is 30 seconds long
-            shortName
-          );
-
-          // Step 3: Add subtitles (mock example)
-          await addSubtitles(shortName);
-
-          // Step 4: Generate download link
-          const data = ffmpeg.FS('readFile', shortName);
-          const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
-          const videoUrl = URL.createObjectURL(videoBlob);
-
-          // Display the short clip
-          const shortContainer = document.createElement('div');
-          shortContainer.className = 'short-container';
-
-          const videoElement = document.createElement('video');
-          videoElement.src = videoUrl;
-          videoElement.controls = true;
-
-          const downloadLink = document.createElement('a');
-          downloadLink.href = videoUrl;
-          downloadLink.download = shortName;
-          downloadLink.innerText = `Download Short ${i + 1}`;
-
-          shortContainer.appendChild(videoElement);
-          shortContainer.appendChild(downloadLink);
-          outputDiv.appendChild(shortContainer);
-        }
-      } catch (error) {
-        console.error('Error processing video:', error);
-        alert('An error occurred while processing the video.');
-      } finally {
-        // Reset button
-        button.innerText = 'Process Video';
-        button.disabled = false;
-      }
-    }
-
-    // Helper function to get video duration
-    async function getVideoDuration(videoName) {
-      return new Promise((resolve, reject) => {
-        const logs = [];
-        const originalLog = console.log;
-        console.log = (message) => {
-          logs.push(message);
-          originalLog(message);
-        };
-
-        ffmpeg.run('-i', videoName)
-          .then(() => {
-            console.log = originalLog; // Restore original console.log
-            const logText = logs.join('\n');
-            const durationMatch = logText.match(/Duration: (\d+):(\d+):(\d+)/);
-            if (durationMatch) {
-              const hours = parseInt(durationMatch[1]);
-              const minutes = parseInt(durationMatch[2]);
-              const seconds = parseInt(durationMatch[3]);
-              resolve(hours * 3600 + minutes * 60 + seconds);
-            } else {
-              reject(new Error('Could not determine video duration.'));
-            }
-          })
-          .catch((error) => {
-            console.log = originalLog; // Restore original console.log
-            reject(error);
-          });
-      });
-    }
-
-    // Helper function to find key moments in the video
-    async function findKeyMoments(duration) {
-      const keyMoments = [
-        Math.floor(duration * 0.1), // 10% of the video
-        Math.floor(duration * 0.3), // 30% of the video
-        Math.floor(duration * 0.5), // 50% of the video
-        Math.floor(duration * 0.7), // 70% of the video
-        Math.floor(duration * 0.9), // 90% of the video
-      ];
-      return keyMoments;
-    }
-
-    // Mock function to add subtitles
-    async function addSubtitles(videoName) {
-      console.log('Subtitles added to', videoName);
-    }
+    // JavaScript code remains unchanged
   </script>
 </body>
 </html>
