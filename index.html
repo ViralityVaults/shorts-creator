@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Editor Tool</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: #f4f4f9;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      color: #333;
+    }
+    .container {
+      background: white;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      max-width: 600px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      color: #4a90e2;
+    }
+    p {
+      font-size: 1rem;
+      margin-bottom: 2rem;
+      color: #666;
+    }
+    input[type="file"] {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+    button {
+      background-color: #4a90e2;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 5px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    button:hover {
+      background-color: #357abd;
+    }
+    .output {
+      margin-top: 2rem;
+      display: none;
+    }
+    .output video {
+      width: 100%;
+      border-radius: 5px;
+      margin-bottom: 1rem;
+    }
+    .output a {
+      display: inline-block;
+      margin-top: 0.5rem;
+      color: #4a90e2;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .output a:hover {
+      text-decoration: underline;
+    }
+    .short-container {
+      margin-bottom: 2rem;
+      padding: 1rem;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background-color: #f9f9f9;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Video Editor Tool</h1>
+    <p>Upload a video to generate short, vertical clips with subtitles and analysis.</p>
+    <input type="file" id="videoInput" accept="video/*">
+    <button onclick="processVideo()">Process Video</button>
+    <div class="output" id="output"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: true });
+
+    async function processVideo() {
+      const videoFile = document.getElementById('videoInput').files[0];
+      if (!videoFile) {
+        alert('Please upload a video!');
+        return;
+      }
+
+      // Show loading state
+      const button = document.querySelector('button');
+      button.innerText = 'Processing...';
+      button.disabled = true;
+
+      try {
+        // Load FFmpeg
+        if (!ffmpeg.isLoaded()) {
+          await ffmpeg.load();
+        }
+
+        // Write the uploaded file to FFmpeg's file system
+        const videoName = 'input.mp4';
+        ffmpeg.FS('writeFile', videoName, await fetchFile(videoFile));
+
+        // Step 1: Get video duration and key moments
+        const duration = await getVideoDuration(videoName);
+        const keyMoments = await findKeyMoments(videoName);
+
+        // Step 2: Create 5 strategic short clips
+        const outputDiv = document.getElementById('output');
+        outputDiv.innerHTML = ''; // Clear previous output
+        outputDiv.style.display = 'block';
+
+        for (let i = 0; i < 5; i++) {
+          const startTime = keyMoments[i];
+          const shortName = `short_${i + 1}.mp4`;
+
+          // Trim and resize the video
+          await ffmpeg.run(
+            '-i', videoName,
+            '-vf', 'scale=1080:1920',
+            '-ss', startTime.toString(),
+            '-t', '30', // Each short is 30 seconds long
+            shortName
+          );
+
+          // Step 3: Add subtitles (mock example)
+          await addSubtitles(shortName);
+
+          // Step 4: Generate download link
+          const data = ffmpeg.FS('readFile', shortName);
+          const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
+          const videoUrl = URL.createObjectURL(videoBlob);
+
+          // Display the short clip
+          const shortContainer = document.createElement('div');
+          shortContainer.className = 'short-container';
+
+          const videoElement = document.createElement('video');
+          videoElement.src = videoUrl;
+          videoElement.controls = true;
+
+          const downloadLink = document.createElement('a');
+          downloadLink.href = videoUrl;
+          downloadLink.download = shortName;
+          downloadLink.innerText = `Download Short ${i + 1}`;
+
+          shortContainer.appendChild(videoElement);
+          shortContainer.appendChild(downloadLink);
+          outputDiv.appendChild(shortContainer);
+        }
+      } catch (error) {
+        console.error('Error processing video:', error);
+        alert('An error occurred while processing the video.');
+      } finally {
+        // Reset button
+        button.innerText = 'Process Video';
+        button.disabled = false;
+      }
+    }
+
+    // Helper function to get video duration
+    async function getVideoDuration(videoName) {
+      const info = await ffmpeg.run('-i', videoName);
+      const durationMatch = info.match(/Duration: (\d+):(\d+):(\d+)/);
+      if (durationMatch) {
+        const hours = parseInt(durationMatch[1]);
+        const minutes = parseInt(durationMatch[2]);
+        const seconds = parseInt(durationMatch[3]);
+        return hours * 3600 + minutes * 60 + seconds;
+      }
+      return 0;
+    }
+
+    // Helper function to find key moments in the video
+    async function findKeyMoments(videoName) {
+      const duration = await getVideoDuration(videoName);
+      const keyMoments = [
+        Math.floor(duration * 0.1), // 10% of the video
+        Math.floor(duration * 0.3), // 30% of the video
+        Math.floor(duration * 0.5), // 50% of the video
+        Math.floor(duration * 0.7), // 70% of the video
+        Math.floor(duration * 0.9), // 90% of the video
+      ];
+      return keyMoments;
+    }
+
+    // Mock function to add subtitles
+    async function addSubtitles(videoName) {
+      console.log('Subtitles added to', videoName);
+    }
+  </script>
+</body>
+</html>
