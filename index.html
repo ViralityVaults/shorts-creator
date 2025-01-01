@@ -121,9 +121,9 @@
         const videoName = 'input.mp4';
         ffmpeg.FS('writeFile', videoName, await fetchFile(videoFile));
 
-        // Step 1: Get video duration and key moments
+        // Step 1: Get video duration
         const duration = await getVideoDuration(videoName);
-        const keyMoments = await findKeyMoments(videoName);
+        const keyMoments = await findKeyMoments(duration);
 
         // Step 2: Create 5 strategic short clips
         const outputDiv = document.getElementById('output');
@@ -180,20 +180,37 @@
 
     // Helper function to get video duration
     async function getVideoDuration(videoName) {
-      const info = await ffmpeg.run('-i', videoName);
-      const durationMatch = info.match(/Duration: (\d+):(\d+):(\d+)/);
-      if (durationMatch) {
-        const hours = parseInt(durationMatch[1]);
-        const minutes = parseInt(durationMatch[2]);
-        const seconds = parseInt(durationMatch[3]);
-        return hours * 3600 + minutes * 60 + seconds;
-      }
-      return 0;
+      return new Promise((resolve, reject) => {
+        const logs = [];
+        const originalLog = console.log;
+        console.log = (message) => {
+          logs.push(message);
+          originalLog(message);
+        };
+
+        ffmpeg.run('-i', videoName)
+          .then(() => {
+            console.log = originalLog; // Restore original console.log
+            const logText = logs.join('\n');
+            const durationMatch = logText.match(/Duration: (\d+):(\d+):(\d+)/);
+            if (durationMatch) {
+              const hours = parseInt(durationMatch[1]);
+              const minutes = parseInt(durationMatch[2]);
+              const seconds = parseInt(durationMatch[3]);
+              resolve(hours * 3600 + minutes * 60 + seconds);
+            } else {
+              reject(new Error('Could not determine video duration.'));
+            }
+          })
+          .catch((error) => {
+            console.log = originalLog; // Restore original console.log
+            reject(error);
+          });
+      });
     }
 
     // Helper function to find key moments in the video
-    async function findKeyMoments(videoName) {
-      const duration = await getVideoDuration(videoName);
+    async function findKeyMoments(duration) {
       const keyMoments = [
         Math.floor(duration * 0.1), // 10% of the video
         Math.floor(duration * 0.3), // 30% of the video
